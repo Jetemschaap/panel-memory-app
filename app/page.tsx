@@ -124,7 +124,7 @@ export default function Page() {
     return cards.length > 0 && cards.every((c) => c.matched);
   }, [cards]);
 
-  function newGame(players: number, boardCards: number) {
+  async function newGame(players: number, boardCards: number) {
     setGameFinished(false);
 
     const randomSet = Math.floor(Math.random() * TOTAL_SETS) + 1;
@@ -138,6 +138,18 @@ export default function Page() {
 
     const chosenFiles = shuffle(cleaned).slice(0, neededPairs);
     const fronts = chosenFiles.map((f) => `/memory/set${randomSet}/${f}`);
+// 🔄 preload afbeeldingen
+await Promise.all(
+  fronts.map((src) => {
+    return new Promise<void>((resolve) => {
+      const img = new Image();
+      img.src = src;
+      img.onload = () => resolve();
+      img.onerror = () => resolve();
+    });
+  })
+);
+
 
     const doubled: Card[] = [...fronts, ...fronts].map((img, i) => ({
       id: `${i}-${Math.random().toString(16).slice(2)}`,
