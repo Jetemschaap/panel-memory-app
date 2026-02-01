@@ -29,10 +29,10 @@ const BOARD_OPTIONS: BoardOption[] = [
 ];
 
 const TOTAL_SETS = 5; // /public/memory/set1 ... set5
-const JOKER_KEYWORD = "joker";
+const JOKER_KEYWORD = "heerjan";
 const PLAYER_COLORS = ["#ffcc00", "#60a5fa", "#34d399", "#f472b6"];
 
-// ✅ hier stel je de tijden in
+// ✅ tijden (pas aan als je wil)
 const TURN_BACK_DELAY_MS = 1200; // fout: 1,2 sec kijken
 const FINISH_SCREEN_DELAY_MS = 1500; // einde: 1,5 sec kijken
 
@@ -45,7 +45,7 @@ function shuffle<T>(arr: T[]) {
   return a;
 }
 
-// ✅ jouw “front” plaatjes (18 voor 36 kaarten)
+// ✅ jouw front plaatjes (18 nodig voor 36 kaarten)
 const fileNames: string[] = [
   "aadt.png",
       "ceesdg.png",
@@ -84,10 +84,9 @@ export default function Page() {
   const [currentPlayer, setCurrentPlayer] = useState(0);
   const [scores, setScores] = useState<number[]>([]);
 
-  // ✅ eindscherm vertraagd
   const [gameFinished, setGameFinished] = useState(false);
 
-  // ✅ refs (tegen snelle tikken op iPhone)
+  // ✅ refs: voorkomt iPhone “dubbel tik” bugs
   const cardsRef = useRef<Card[]>([]);
   const openIdsRef = useRef<string[]>([]);
   const lockedRef = useRef(false);
@@ -97,15 +96,19 @@ export default function Page() {
   useEffect(() => {
     cardsRef.current = cards;
   }, [cards]);
+
   useEffect(() => {
     openIdsRef.current = openIds;
   }, [openIds]);
+
   useEffect(() => {
     lockedRef.current = locked;
   }, [locked]);
+
   useEffect(() => {
     currentPlayerRef.current = currentPlayer;
   }, [currentPlayer]);
+
   useEffect(() => {
     numPlayersRef.current = numPlayers;
   }, [numPlayers]);
@@ -152,7 +155,6 @@ export default function Page() {
     setScores(new Array(players).fill(0));
   }
 
-  // ✅ super veilige flip
   function flip(id: string) {
     if (lockedRef.current) return;
 
@@ -176,7 +178,7 @@ export default function Page() {
     });
   }
 
-  // ✅ match check + terugdraaien met extra tijd
+  // match check
   useEffect(() => {
     if (openIds.length !== 2) return;
 
@@ -185,6 +187,8 @@ export default function Page() {
     const b = cardsRef.current.find((c) => c.id === idB);
 
     const isMatch = !!a && !!b && a.img === b.img;
+
+    const delay = isMatch ? 650 : TURN_BACK_DELAY_MS;
 
     const t = window.setTimeout(() => {
       if (isMatch) {
@@ -219,12 +223,12 @@ export default function Page() {
 
       setOpenIds([]);
       setLocked(false);
-    }, isMatch ? 650 : TURN_BACK_DELAY_MS);
+    }, delay);
 
     return () => window.clearTimeout(t);
   }, [openIds]);
 
-  // ✅ eindscherm vertragen
+  // eindscherm vertragen
   useEffect(() => {
     if (!allMatched) return;
 
@@ -235,7 +239,7 @@ export default function Page() {
     return () => window.clearTimeout(t);
   }, [allMatched]);
 
-  // ✅ eindscherm
+  // END SCREEN
   if (gameFinished) {
     const maxScore = scores.length ? Math.max(...scores) : 0;
     const winners = scores
@@ -280,7 +284,13 @@ export default function Page() {
             Nog een potje (random set)
           </button>
 
-          <button onClick={() => setStarted(false)} style={styles.secondaryBtn}>
+          <button
+            onClick={() => {
+              setGameFinished(false);
+              setStarted(false);
+            }}
+            style={styles.secondaryBtn}
+          >
             Terug naar start
           </button>
         </div>
@@ -288,7 +298,7 @@ export default function Page() {
     );
   }
 
-  // ✅ startscherm
+  // START SCREEN
   if (!started) {
     return (
       <div style={styles.page}>
@@ -297,7 +307,13 @@ export default function Page() {
 
           <div style={{ opacity: 0.9, fontWeight: 900 }}>Aantal spelers</div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(4, 1fr)",
+              gap: 10,
+            }}
+          >
             {[1, 2, 3, 4].map((n) => (
               <button
                 key={n}
@@ -317,7 +333,13 @@ export default function Page() {
 
           <div style={{ opacity: 0.9, fontWeight: 900 }}>Bord kiezen</div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: 10,
+            }}
+          >
             {BOARD_OPTIONS.map((opt) => {
               const active = opt.cards === board.cards;
               return (
@@ -347,20 +369,12 @@ export default function Page() {
           >
             Start (random set)
           </button>
-
-          <div style={{ opacity: 0.7, fontSize: 12, lineHeight: 1.35 }}>
-            Achterkant: <code>/public/memory/back.png</code>
-            <br />
-            Sets: <code>/public/memory/set1</code> t/m <code>set{TOTAL_SETS}</code>
-            <br />
-            Joker: bestandsnaam bevat “{JOKER_KEYWORD}” ⇒ 3 punten
-          </div>
         </div>
       </div>
     );
   }
 
-  // ✅ spel
+  // GAME SCREEN
   const activeColor = PLAYER_COLORS[currentPlayer] ?? "#ffcc00";
 
   return (
@@ -375,8 +389,16 @@ export default function Page() {
       }}
     >
       <div style={{ maxWidth: 980, margin: "0 auto", display: "grid", gap: 12 }}>
+        {/* header */}
         <div style={styles.headerRow}>
-          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
             <div style={{ fontWeight: 900, fontSize: 18 }}>🎾 Padel Memory</div>
             <div style={{ opacity: 0.85, fontSize: 13 }}>
               PAREN: {pairsFound}/{totalPairs}
@@ -391,15 +413,25 @@ export default function Page() {
           </div>
 
           <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={() => newGame(numPlayers, board.cards)} style={styles.primarySmallBtn}>
+            <button
+              onClick={() => newGame(numPlayers, board.cards)}
+              style={styles.primarySmallBtn}
+            >
               Reset
             </button>
-            <button onClick={() => setStarted(false)} style={styles.secondarySmallBtn}>
+            <button
+              onClick={() => {
+                setGameFinished(false);
+                setStarted(false);
+              }}
+              style={styles.secondarySmallBtn}
+            >
               Terug
             </button>
           </div>
         </div>
 
+        {/* scores */}
         <div
           style={{
             display: "grid",
@@ -417,7 +449,9 @@ export default function Page() {
                   padding: 12,
                   borderRadius: 12,
                   background: "rgba(255,255,255,.06)",
-                  border: active ? `2px solid ${c}` : "1px solid rgba(255,255,255,.12)",
+                  border: active
+                    ? `2px solid ${c}`
+                    : "1px solid rgba(255,255,255,.12)",
                   fontWeight: 900,
                   display: "flex",
                   justifyContent: "space-between",
@@ -430,6 +464,7 @@ export default function Page() {
           })}
         </div>
 
+        {/* grid */}
         <div
           style={{
             display: "grid",
@@ -444,7 +479,12 @@ export default function Page() {
               <button
                 key={c.id}
                 onClick={() => flip(c.id)}
-                style={{ border: "none", background: "transparent", padding: 0, cursor: "pointer" }}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  padding: 0,
+                  cursor: "pointer",
+                }}
                 aria-label="memory card"
               >
                 <div
@@ -463,14 +503,22 @@ export default function Page() {
                     <img
                       src="/memory/back.png"
                       alt="back"
-                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                      }}
                       draggable={false}
                     />
                   ) : (
                     <img
                       src={c.img}
                       alt="front"
-                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                      }}
                       draggable={false}
                     />
                   )}
