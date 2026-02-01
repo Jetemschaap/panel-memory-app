@@ -35,6 +35,8 @@ const PLAYER_COLORS = ["#ffcc00", "#60a5fa", "#34d399", "#f472b6"];
 // ✅ tijden (pas aan als je wil)
 const TURN_BACK_DELAY_MS = 1200; // fout: 1,2 sec kijken
 const FINISH_SCREEN_DELAY_MS = 1500; // einde: 1,5 sec kijken
+// ⏱️ timer (alleen voor 1 speler)
+
 
 function shuffle<T>(arr: T[]) {
   const a = [...arr];
@@ -86,12 +88,17 @@ export default function Page() {
 
   const [gameFinished, setGameFinished] = useState(false);
 
+  // ⏱️ TIMER (alleen voor 1 speler)
+  const [timeMs, setTimeMs] = useState(0);
+  const [timerRunning, setTimerRunning] = useState(false);
+
   // ✅ refs: voorkomt iPhone “dubbel tik” bugs
   const cardsRef = useRef<Card[]>([]);
   const openIdsRef = useRef<string[]>([]);
   const lockedRef = useRef(false);
   const currentPlayerRef = useRef(0);
   const numPlayersRef = useRef(2);
+
 
   useEffect(() => {
     cardsRef.current = cards;
@@ -241,34 +248,91 @@ await Promise.all(
   }, [openIds]);
 
   // eindscherm vertragen
-  useEffect(() => {
-    if (!allMatched) return;
+ useEffect(() => {
+  if (!allMatched) return;
 
-    const t = window.setTimeout(() => {
-      setGameFinished(true);
-    }, FINISH_SCREEN_DELAY_MS);
+  if (numPlayers === 1) {
+    setTimerRunning(false);
 
-    return () => window.clearTimeout(t);
-  }, [allMatched]);
+    const key = `bestTime_${board.cards}`;
+    const best = localStorage.getItem(key);
+
+    if (!best || timeMs < Number(best)) {
+      localStorage.setItem(key, String(timeMs));
+    }
+  }
+
+  const t = window.setTimeout(() => {
+    setGameFinished(true);
+  }, FINISH_SCREEN_DELAY_MS);
+
+  return () => window.clearTimeout(t);
+}, [allMatched]);
+
+
+useEffect(() => {
+  if (!allMatched) return;
+
+  const t = window.setTimeout(() => {
+    setGameFinished(true);
+  }, FINISH_SCREEN_DELAY_MS);
+
+  return () => window.clearTimeout(t);
+}, [allMatched]);
+
+// ⏱️ TIMER
+useEffect(() => {
+  if (!timerRunning) return;
+
+  const start = Date.now() - timeMs;
+  const t = window.setInterval(() => {
+    setTimeMs(Date.now() - start);
+  }, 200);
+
+  return () => window.clearInterval(t);
+}, [timerRunning, timeMs]);
+
 
   // END SCREEN
-  if (gameFinished) {
-    const maxScore = scores.length ? Math.max(...scores) : 0;
-    const winners = scores
-      .map((s, i) => ({ s: s ?? 0, i }))
-      .filter((x) => x.s === maxScore)
-      .map((x) => x.i);
+if (gameFinished) {
+  const maxScore = scores.length ? Math.max(...scores) : 0;
+  const winners = scores
+    .map((s, i) => ({ s: s ?? 0, i }))
+    .filter((x) => x.s === maxScore)
+    .map((x) => x.i);
 
-    const winnaarTekst =
-      winners.length === 1
-        ? `WINNAAR: Speler ${winners[0] + 1}`
-        : `GELIJKSPEL: Speler ${winners.map((w) => w + 1).join(" & ")}`;
+  let bestTime: number | null = null;
 
-    return (
-      <div style={styles.page}>
-        <div style={{ width: "100%", maxWidth: 520, display: "grid", gap: 14 }}>
-          <div style={{ fontSize: 28, fontWeight: 1000 }}>{winnaarTekst}</div>
+  if (numPlayers === 1) {
+    const key = `bestTime_${board.cards}`;
+    const stored = localStorage.getItem(key);
+    if (stored) {
+      bestTime = Number(stored);
+    }
+  }
 
+  const winnaarTekst =
+    winners.length === 1
+      ? `WINNAAR: Speler ${winners[0] + 1}`
+      : `GELIJKSPEL: Speler ${winners.map((w) => w + 1).join(" & ")}`;
+
+  return (
+    <div style={styles.page}>
+      <div style={{ width: "100%", maxWidth: 520, display: "grid", gap: 14 }}>
+        <div style={{ fontSize: 28, fontWeight: 1000 }}>
+          {numPlayers === 1 ? "KLAAR!" : winnaarTekst}
+        </div>
+
+        {numPlayers === 1 && (
+          <div style={{ fontWeight: 900 }}>
+            Jouw tijd: {(timeMs / 1000).toFixed(1)} sec
+            <br />
+            Beste tijd ({board.cards} kaarten):{" "}
+            {bestTime ? (bestTime / 1000).toFixed(1) + " sec" : "Nog geen record"}
+          </div>
+        )}
+
+        {numPlayers > 1 && (
           <div style={styles.panel}>
             {scores.map((s, i) => (
               <div
@@ -288,27 +352,29 @@ await Promise.all(
               </div>
             ))}
           </div>
+        )}
 
-          <button
-            onClick={() => newGame(numPlayers, board.cards)}
-            style={styles.primaryBtn}
-          >
-            Nog een potje (random set)
-          </button>
+        <button
+          onClick={() => newGame(numPlayers, board.cards)}
+          style={styles.primaryBtn}
+        >
+          Nog een potje
+        </button>
 
-          <button
-            onClick={() => {
-              setGameFinished(false);
-              setStarted(false);
-            }}
-            style={styles.secondaryBtn}
-          >
-            Terug naar start
-          </button>
-        </div>
+        <button
+          onClick={() => {
+            setGameFinished(false);
+            setStarted(false);
+          }}
+          style={styles.secondaryBtn}
+        >
+          Terug naar start
+        </button>
       </div>
-    );
-  }
+    </div>
+  );
+}
+
 
   // START SCREEN
   if (!started) {
@@ -373,14 +439,20 @@ await Promise.all(
           </div>
 
           <button
-            onClick={() => {
-              newGame(numPlayers, board.cards);
-              setStarted(true);
-            }}
-            style={styles.primaryBtn}
-          >
-            Start (random set)
-          </button>
+  onClick={async () => {
+    await newGame(numPlayers, board.cards);
+    setStarted(true);
+
+    if (numPlayers === 1) {
+      setTimeMs(0);
+      setTimerRunning(true);
+    }
+  }}
+  style={styles.primaryBtn}
+>
+  Start (random set)
+</button>
+
         </div>
       </div>
     );
@@ -412,6 +484,12 @@ await Promise.all(
             }}
           >
             <div style={{ fontWeight: 900, fontSize: 18 }}>🎾 Padel Memory</div>
+{numPlayers === 1 && (
+  <div style={{ fontWeight: 900, fontSize: 14 }}>
+    Tijd: {(timeMs / 1000).toFixed(1)} sec
+  </div>
+)}
+
             <div style={{ opacity: 0.85, fontSize: 13 }}>
               PAREN: {pairsFound}/{totalPairs}
             </div>
