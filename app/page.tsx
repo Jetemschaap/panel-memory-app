@@ -70,6 +70,9 @@ const fileNames: string[] = [
 ];
 
 export default function Page() {
+  const [showIntro, setShowIntro] = useState(true);
+  const [introZoom, setIntroZoom] = useState(false);
+
   const [started, setStarted] = useState(false);
   const [numPlayers, setNumPlayers] = useState(2);
 
@@ -371,6 +374,59 @@ if (gameFinished) {
           Terug naar start
         </button>
       </div>
+    </div>
+  );
+}
+
+// INTRO SCREEN
+if (showIntro) {
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        backgroundImage: "url(/heerjanoud.png)",
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+        position: "relative",
+      }}
+    >
+      {/* tennisbal onderaan */}
+      <button
+        onClick={() => {
+          setIntroZoom(true);
+          setTimeout(() => {
+            setShowIntro(false);
+            setIntroZoom(false);
+          }, 250);
+        }}
+        style={{
+          position: "absolute",
+          left: "50%",
+          bottom: 40,
+          transform: `translateX(-50%) scale(${introZoom ? 2 : 1})`,
+          transition: "transform 250ms ease",
+          width: 140,
+          height: 140,
+          borderRadius: "50%",
+          border: "none",
+          background: "transparent",
+          cursor: "pointer",
+          padding: 0,
+        }}
+        aria-label="Start"
+      >
+        <img
+          src="/tennisbal.png"
+          alt="Start"
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "contain",
+            display: "block",
+          }}
+          draggable={false}
+        />
+      </button>
     </div>
   );
 }
