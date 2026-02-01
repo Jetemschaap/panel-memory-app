@@ -10,6 +10,23 @@ type Card = {
   owner: number | null; // speler die dit paar vond
 };
 
+type BoardOption = {
+  cards: number; // totaal kaarten
+  rows: number;
+  cols: number;
+  label: string; // voor op startscherm
+};
+
+const BOARD_OPTIONS = [
+  { cards: 8,  cols: 2, rows: 4, label: "8 (2×4)" },
+  { cards: 12, cols: 3, rows: 4, label: "12 (3×4)" },
+  { cards: 16, cols: 4, rows: 4, label: "16 (4×4)" },
+  { cards: 20, cols: 4, rows: 5, label: "20 (4×5)" },
+  { cards: 24, cols: 4, rows: 6, label: "24 (4×6)" },
+  { cards: 30, cols: 5, rows: 6, label: "30 (5×6)" },
+  { cards: 36, cols: 6, rows: 6, label: "36 (6×6)" },
+];
+
 function shuffle<T>(arr: T[]) {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -19,21 +36,14 @@ function shuffle<T>(arr: T[]) {
   return a;
 }
 
-// Speler 1 groen, 2 rood, 3 geel, 4 blauw
-const PLAYER_COLORS = ["#22c55e", "#ef4444", "#facc15", "#3b82f6"];
-
-// Jij hebt set1 t/m set6
-const TOTAL_SETS = 6;
-
-// Joker: als bestandsnaam "heerjan" bevat => 3 punten
-const JOKER_KEYWORD = "heerjan";
-
-export default function Home() {
-  // ✅ ALLEEN bestandsnamen (zonder /memory/setX/ ervoor)
-  // ✅ Deze 18 moeten in elke set-map bestaan (set1..set6)
-  const fileNames = useMemo(
-    () => [
-      "aadt.png",
+/**
+ * ✅ Zet hier jouw bestandsnamen (fronts) neer.
+ * Let op: dit zijn de "paren" (dus 18 stuks voor 36 kaarten).
+ * Voor een kleiner bord pakken we gewoon een subset.
+ */
+const fileNames = [
+  // <-- jouw lijst blijft zoals hij was in jouw bestand
+  "aadt.png",
       "ceesdg.png",
       "ceesm.png",
       "ceesvt.png",
@@ -51,23 +61,27 @@ export default function Home() {
       "martin.png",
       "pieters.png",
       "heerjan.png", // ✅ joker
-    ],
-    []
-  );
+];
 
-  // Startscherm
+const TOTAL_SETS = 5; // hoeveel sets je hebt: /public/memory/set1 ... set5
+const JOKER_KEYWORD = "joker";
+const PLAYER_COLORS = ["#ffcc00", "#60a5fa", "#34d399", "#f472b6"];
+
+export default function Page() {
   const [started, setStarted] = useState(false);
   const [numPlayers, setNumPlayers] = useState(2);
 
-  // Random gekozen set (1..6)
+  // ✅ nieuw: bordkeuze
+  const [board, setBoard] = useState<BoardOption>(
+    BOARD_OPTIONS.find((b) => b.cards === 36) ?? BOARD_OPTIONS[0]
+  );
+
   const [activeSet, setActiveSet] = useState(1);
 
-  // Game state
   const [cards, setCards] = useState<Card[]>([]);
   const [openIds, setOpenIds] = useState<string[]>([]);
   const [locked, setLocked] = useState(false);
 
-  // Multiplayer
   const [currentPlayer, setCurrentPlayer] = useState(0);
   const [scores, setScores] = useState<number[]>([]);
 
@@ -88,21 +102,25 @@ export default function Home() {
     numPlayersRef.current = numPlayers;
   }, [numPlayers]);
 
-  const totalPairs = fileNames.length;
+  const totalPairs = useMemo(() => Math.floor(board.cards / 2), [board]);
   const pairsFound = useMemo(
     () => cards.filter((c) => c.matched).length / 2,
     [cards]
   );
 
-  function newGame(players = numPlayersRef.current) {
+  function newGame(players = numPlayersRef.current, boardCards = board.cards) {
     // ✅ random set kiezen
     const randomSet = Math.floor(Math.random() * TOTAL_SETS) + 1;
     setActiveSet(randomSet);
 
-    // ✅ maak 18 paren => 36 kaarten
-    const base = fileNames
-      .filter((f) => typeof f === "string" && f.trim().length > 0)
-      .map((f) => `/memory/set${randomSet}/${f}`);
+    const neededPairs = Math.floor(boardCards / 2);
+
+    // ✅ pak precies zoveel paren als nodig (random uit de lijst)
+    const chosenFiles = shuffle(
+      fileNames.filter((f) => typeof f === "string" && f.trim().length > 0)
+    ).slice(0, neededPairs);
+
+    const base = chosenFiles.map((f) => `/memory/set${randomSet}/${f}`);
 
     const doubled: Card[] = [...base, ...base].map((img, i) => ({
       id: `${i}-${Math.random().toString(16).slice(2)}`,
@@ -130,163 +148,77 @@ export default function Home() {
       return prev.map((c) => (c.id === id ? { ...c, flipped: true } : c));
     });
 
-    setOpenIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    setOpenIds((prev) => [...prev, id]);
   }
 
-  // Match-check + score/turn
   useEffect(() => {
     if (openIds.length !== 2) return;
 
-    const [id1, id2] = openIds;
     setLocked(true);
 
+    const [idA, idB] = openIds;
+    const a = cardsRef.current.find((c) => c.id === idA);
+    const b = cardsRef.current.find((c) => c.id === idB);
+
+    const isMatch = !!a && !!b && a.img === b.img;
+
     const t = setTimeout(() => {
-      const snapshot = cardsRef.current;
-      const a = snapshot.find((c) => c.id === id1);
-      const b = snapshot.find((c) => c.id === id2);
-
-      const isMatch = !!a && !!b && a.img === b.img;
-
-      // Update cards
-      setCards((prev) => {
-        const aa = prev.find((c) => c.id === id1);
-        const bb = prev.find((c) => c.id === id2);
-        if (!aa || !bb) return prev;
-
-        if (isMatch) {
-          const owner = currentPlayerRef.current;
-          return prev.map((c) =>
-            c.id === id1 || c.id === id2
-              ? { ...c, matched: true, owner }
-              : c
-          );
-        } else {
-          return prev.map((c) =>
-            c.id === id1 || c.id === id2 ? { ...c, flipped: false } : c
-          );
-        }
-      });
-
-      // Score + beurt
       if (isMatch) {
-        const owner = currentPlayerRef.current;
+        const p = currentPlayerRef.current;
 
+        // joker bonus
         const isJoker = (a?.img ?? "").toLowerCase().includes(JOKER_KEYWORD);
         const points = isJoker ? 3 : 1;
 
-        setScores((s) => {
-          const next = [...s];
-          next[owner] = (next[owner] ?? 0) + points;
+        setCards((prev) =>
+          prev.map((c) =>
+            c.id === idA || c.id === idB
+              ? { ...c, matched: true, owner: p }
+              : c
+          )
+        );
+
+        setScores((prev) => {
+          const next = [...prev];
+          next[p] = (next[p] ?? 0) + points;
           return next;
         });
-        // match = zelfde speler blijft
+
+        // zelfde speler blijft aan zet bij match
       } else {
-        setCurrentPlayer((p) => (p + 1) % numPlayersRef.current);
+        setCards((prev) =>
+          prev.map((c) =>
+            c.id === idA || c.id === idB ? { ...c, flipped: false } : c
+          )
+        );
+
+        // volgende speler
+        setCurrentPlayer((prev) => (prev + 1) % numPlayersRef.current);
       }
 
       setOpenIds([]);
       setLocked(false);
-    }, 900);
+    }, 650);
 
     return () => clearTimeout(t);
   }, [openIds]);
 
-  // Startscherm
-  if (!started) {
-    
-// ✅ EINDSCHERM
-if (pairsFound === totalPairs && totalPairs > 0) {
-  const maxScore = Math.max(...scores.map((s) => s ?? 0));
-  const winners = scores
-    .map((s, i) => ({ s: s ?? 0, i }))
-    .filter((x) => x.s === maxScore)
-    .map((x) => x.i);
+  // einde spel
+  const allMatched = cards.length > 0 && cards.every((c) => c.matched);
 
-  const winnaarTekst =
-    winners.length === 1
-      ? `WINNAAR: Speler ${winners[0] + 1}`
-      : `GELIJKSPEL: Speler ${winners.map((w) => w + 1).join(" & ")}`;
+  if (allMatched) {
+    const maxScore = Math.max(...scores);
+    const winners = scores
+      .map((s, i) => ({ s: s ?? 0, i }))
+      .filter((x) => x.s === maxScore)
+      .map((x) => x.i);
 
-  return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#0b1020",
-        color: "white",
-        display: "grid",
-        placeItems: "center",
-        padding: 20,
-        fontFamily:
-          'system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial',
-      }}
-    >
-      <div style={{ width: "100%", maxWidth: 520, display: "grid", gap: 14 }}>
-        <div style={{ fontSize: 28, fontWeight: 1000 }}>{winnaarTekst}</div>
+    const winnaarTekst =
+      winners.length === 1
+        ? `WINNAAR: Speler ${winners[0] + 1}`
+        : `GELIJKSPEL: Speler ${winners.map((w) => w + 1).join(" & ")}`;
 
-        <div
-          style={{
-            padding: 14,
-            borderRadius: 14,
-            background: "rgba(255,255,255,.06)",
-            border: "1px solid rgba(255,255,255,.12)",
-            display: "grid",
-            gap: 8,
-            fontWeight: 900,
-          }}
-        >
-          {scores.map((s, i) => (
-            <div
-              key={i}
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                padding: "8px 10px",
-                borderRadius: 12,
-                border: `2px solid ${PLAYER_COLORS[i] ?? "white"}`,
-                background: "rgba(0,0,0,.15)",
-              }}
-            >
-              <span>Speler {i + 1}</span>
-              <span>{s ?? 0}</span>
-            </div>
-          ))}
-        </div>
-
-        <button
-          onClick={() => newGame(numPlayers)}
-          style={{
-            background: "#ffcc00",
-            color: "#111",
-            border: "none",
-            padding: "12px 14px",
-            borderRadius: 12,
-            fontWeight: 900,
-            cursor: "pointer",
-          }}
-        >
-          Nog een potje (random set)
-        </button>
-
-        <button
-          onClick={() => setStarted(false)}
-          style={{
-            background: "rgba(255,255,255,.08)",
-            color: "white",
-            border: "1px solid rgba(255,255,255,.18)",
-            padding: "12px 14px",
-            borderRadius: 12,
-            fontWeight: 900,
-            cursor: "pointer",
-          }}
-        >
-          Terug naar start
-        </button>
-      </div>
-    </div>
-  );
-}
-
-return (
+    return (
       <div
         style={{
           minHeight: "100vh",
@@ -299,7 +231,88 @@ return (
             'system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial',
         }}
       >
-        <div style={{ width: "100%", maxWidth: 420, display: "grid", gap: 14 }}>
+        <div style={{ width: "100%", maxWidth: 520, display: "grid", gap: 14 }}>
+          <div style={{ fontSize: 28, fontWeight: 1000 }}>{winnaarTekst}</div>
+
+          <div
+            style={{
+              padding: 14,
+              borderRadius: 14,
+              background: "rgba(255,255,255,.06)",
+              border: "1px solid rgba(255,255,255,.12)",
+              display: "grid",
+              gap: 8,
+              fontWeight: 900,
+            }}
+          >
+            {scores.map((s, i) => (
+              <div
+                key={i}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  padding: "8px 10px",
+                  borderRadius: 12,
+                  border: `2px solid ${PLAYER_COLORS[i] ?? "white"}`,
+                  background: "rgba(0,0,0,.15)",
+                }}
+              >
+                <span>Speler {i + 1}</span>
+                <span>{s ?? 0}</span>
+              </div>
+            ))}
+          </div>
+
+          <button
+            onClick={() => newGame(numPlayers, board.cards)}
+            style={{
+              background: "#ffcc00",
+              color: "#111",
+              border: "none",
+              padding: "12px 14px",
+              borderRadius: 12,
+              fontWeight: 900,
+              cursor: "pointer",
+            }}
+          >
+            Nog een potje (random set)
+          </button>
+
+          <button
+            onClick={() => setStarted(false)}
+            style={{
+              background: "rgba(255,255,255,.08)",
+              color: "white",
+              border: "1px solid rgba(255,255,255,.18)",
+              padding: "12px 14px",
+              borderRadius: 12,
+              fontWeight: 900,
+              cursor: "pointer",
+            }}
+          >
+            Terug naar start
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // STARTSCHERM
+  if (!started) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          background: "#0b1020",
+          color: "white",
+          display: "grid",
+          placeItems: "center",
+          padding: 20,
+          fontFamily:
+            'system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial',
+        }}
+      >
+        <div style={{ width: "100%", maxWidth: 460, display: "grid", gap: 14 }}>
           <div style={{ fontSize: 22, fontWeight: 900 }}>🎾 Padel Memory</div>
 
           <div style={{ opacity: 0.9, fontWeight: 800 }}>Aantal spelers</div>
@@ -333,9 +346,42 @@ return (
             ))}
           </div>
 
+          <div style={{ opacity: 0.9, fontWeight: 800 }}>Bord kiezen</div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: 10,
+            }}
+          >
+            {BOARD_OPTIONS.map((opt) => {
+              const active = opt.cards === board.cards;
+              return (
+                <button
+                  key={opt.cards}
+                  onClick={() => setBoard(opt)}
+                  style={{
+                    border: "1px solid rgba(255,255,255,.18)",
+                    background: active
+                      ? "rgba(255,204,0,.22)"
+                      : "rgba(255,255,255,.06)",
+                    color: "white",
+                    padding: "12px 10px",
+                    borderRadius: 12,
+                    fontWeight: 900,
+                    cursor: "pointer",
+                  }}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+
           <button
             onClick={() => {
-              newGame(numPlayers);
+              newGame(numPlayers, board.cards);
               setStarted(true);
             }}
             style={{
@@ -362,6 +408,7 @@ return (
     );
   }
 
+  // SPELSCHERM
   const activeColor = PLAYER_COLORS[currentPlayer] ?? "#ffcc00";
 
   return (
@@ -394,14 +441,15 @@ return (
             <div style={{ fontWeight: 900, fontSize: 13, color: activeColor }}>
               AAN ZET: Speler {currentPlayer + 1}
             </div>
+            <div style={{ opacity: 0.85, fontSize: 13 }}>Set: {activeSet}</div>
             <div style={{ opacity: 0.85, fontSize: 13 }}>
-              Set: {activeSet}
+              Bord: {board.rows}×{board.cols}
             </div>
           </div>
 
           <div style={{ display: "flex", gap: 10 }}>
             <button
-              onClick={() => newGame(numPlayers)}
+              onClick={() => newGame(numPlayers, board.cards)}
               style={{
                 background: "#ffcc00",
                 color: "#111",
@@ -465,17 +513,16 @@ return (
           })}
         </div>
 
-        {/* grid */}
+        {/* grid ✅ nu gebaseerd op gekozen bord */}
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(6, 1fr)",
+            gridTemplateColumns: `repeat(${board.cols}, 1fr)`,
             gap: 8,
           }}
         >
           {cards.map((c) => {
-            const ownerColor =
-              c.owner != null ? PLAYER_COLORS[c.owner] : null;
+            const ownerColor = c.owner != null ? PLAYER_COLORS[c.owner] : null;
 
             return (
               <button
@@ -498,40 +545,21 @@ return (
                     background: "#111827",
                     position: "relative",
                     boxShadow: "0 6px 16px rgba(0,0,0,.25)",
+                    outline: ownerColor ? `3px solid ${ownerColor}` : "none",
+                    outlineOffset: ownerColor ? -3 : 0,
                   }}
                 >
                   {!c.flipped && !c.matched ? (
                     <img
                       src="/memory/back.png"
                       alt="back"
-                      style={{
-                        width: "100%",
-                        height: "100%",
-                        objectFit: "cover",
-                      }}
+                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
                     />
                   ) : (
                     <img
                       src={c.img}
                       alt="front"
-                      style={{
-                        width: "100%",
-                        height: "100%",
-                        objectFit: "cover",
-                      }}
-                    />
-                  )}
-
-                  {/* Rand in spelerkleur voor gevonden paar */}
-                  {c.matched && ownerColor && (
-                    <div
-                      style={{
-                        position: "absolute",
-                        inset: 0,
-                        border: `5px solid ${ownerColor}`,
-                        borderRadius: 12,
-                        pointerEvents: "none",
-                      }}
+                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
                     />
                   )}
                 </div>
@@ -539,24 +567,6 @@ return (
             );
           })}
         </div>
-
-        {/* win */}
-        {pairsFound === totalPairs && (
-          <div
-            style={{
-              marginTop: 6,
-              padding: 12,
-              borderRadius: 12,
-              background: "rgba(34,197,94,.15)",
-              border: "1px solid rgba(34,197,94,.4)",
-              fontWeight: 900,
-              textAlign: "center",
-            }}
-          >
-            🎉 Klaar! Eindstand:{" "}
-            {scores.map((s, i) => `Speler ${i + 1}: ${s}`).join(" • ")}
-          </div>
-        )}
       </div>
     </div>
   );
