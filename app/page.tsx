@@ -1,24 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type Card = {
   id: string;
   img: string;
   flipped: boolean;
   matched: boolean;
-  owner: number | null; // speler die dit paar vond
+  owner: number | null;
 };
 
 type BoardOption = {
-  cards: number; // totaal kaarten
-  rows: number;
-  cols: number;
-  label: string; // voor op startscherm
+  cards: number;
+  cols: number; // breed (klein getal)
+  rows: number; // hoog (groot getal)
+  label: string;
 };
 
-const BOARD_OPTIONS = [
-  { cards: 8,  cols: 2, rows: 4, label: "8 (2×4)" },
+// ✅ jouw regels: eerst klein (breed), daarna groot (hoog)
+const BOARD_OPTIONS: BoardOption[] = [
+  { cards: 8, cols: 2, rows: 4, label: "8 (2×4)" },
   { cards: 12, cols: 3, rows: 4, label: "12 (3×4)" },
   { cards: 16, cols: 4, rows: 4, label: "16 (4×4)" },
   { cards: 20, cols: 4, rows: 5, label: "20 (4×5)" },
@@ -26,6 +27,14 @@ const BOARD_OPTIONS = [
   { cards: 30, cols: 5, rows: 6, label: "30 (5×6)" },
   { cards: 36, cols: 6, rows: 6, label: "36 (6×6)" },
 ];
+
+const TOTAL_SETS = 5; // /public/memory/set1 ... set5
+const JOKER_KEYWORD = "joker";
+const PLAYER_COLORS = ["#ffcc00", "#60a5fa", "#34d399", "#f472b6"];
+
+// ✅ hier stel je de tijden in
+const TURN_BACK_DELAY_MS = 1200; // fout: 1,2 sec kijken
+const FINISH_SCREEN_DELAY_MS = 1500; // einde: 1,5 sec kijken
 
 function shuffle<T>(arr: T[]) {
   const a = [...arr];
@@ -36,13 +45,8 @@ function shuffle<T>(arr: T[]) {
   return a;
 }
 
-/**
- * ✅ Zet hier jouw bestandsnamen (fronts) neer.
- * Let op: dit zijn de "paren" (dus 18 stuks voor 36 kaarten).
- * Voor een kleiner bord pakken we gewoon een subset.
- */
-const fileNames = [
-  // <-- jouw lijst blijft zoals hij was in jouw bestand
+// ✅ jouw “front” plaatjes (18 voor 36 kaarten)
+const fileNames: string[] = [
   "aadt.png",
       "ceesdg.png",
       "ceesm.png",
@@ -63,15 +67,10 @@ const fileNames = [
       "heerjan.png", // ✅ joker
 ];
 
-const TOTAL_SETS = 5; // hoeveel sets je hebt: /public/memory/set1 ... set5
-const JOKER_KEYWORD = "joker";
-const PLAYER_COLORS = ["#ffcc00", "#60a5fa", "#34d399", "#f472b6"];
-
 export default function Page() {
   const [started, setStarted] = useState(false);
   const [numPlayers, setNumPlayers] = useState(2);
 
-  // ✅ nieuw: bordkeuze
   const [board, setBoard] = useState<BoardOption>(
     BOARD_OPTIONS.find((b) => b.cards === 36) ?? BOARD_OPTIONS[0]
   );
@@ -85,44 +84,59 @@ export default function Page() {
   const [currentPlayer, setCurrentPlayer] = useState(0);
   const [scores, setScores] = useState<number[]>([]);
 
-  // Refs voor stabiele match-check
+  // ✅ eindscherm vertraagd
+  const [gameFinished, setGameFinished] = useState(false);
+
+  // ✅ refs (tegen snelle tikken op iPhone)
   const cardsRef = useRef<Card[]>([]);
+  const openIdsRef = useRef<string[]>([]);
+  const lockedRef = useRef(false);
   const currentPlayerRef = useRef(0);
   const numPlayersRef = useRef(2);
 
   useEffect(() => {
     cardsRef.current = cards;
   }, [cards]);
-
+  useEffect(() => {
+    openIdsRef.current = openIds;
+  }, [openIds]);
+  useEffect(() => {
+    lockedRef.current = locked;
+  }, [locked]);
   useEffect(() => {
     currentPlayerRef.current = currentPlayer;
   }, [currentPlayer]);
-
   useEffect(() => {
     numPlayersRef.current = numPlayers;
   }, [numPlayers]);
 
-  const totalPairs = useMemo(() => Math.floor(board.cards / 2), [board]);
-  const pairsFound = useMemo(
-    () => cards.filter((c) => c.matched).length / 2,
-    [cards]
-  );
+  const totalPairs = useMemo(() => Math.floor(board.cards / 2), [board.cards]);
 
-  function newGame(players = numPlayersRef.current, boardCards = board.cards) {
-    // ✅ random set kiezen
+  const pairsFound = useMemo(() => {
+    const matchedCount = cards.filter((c) => c.matched).length;
+    return matchedCount / 2;
+  }, [cards]);
+
+  const allMatched = useMemo(() => {
+    return cards.length > 0 && cards.every((c) => c.matched);
+  }, [cards]);
+
+  function newGame(players: number, boardCards: number) {
+    setGameFinished(false);
+
     const randomSet = Math.floor(Math.random() * TOTAL_SETS) + 1;
     setActiveSet(randomSet);
 
     const neededPairs = Math.floor(boardCards / 2);
 
-    // ✅ pak precies zoveel paren als nodig (random uit de lijst)
-    const chosenFiles = shuffle(
-      fileNames.filter((f) => typeof f === "string" && f.trim().length > 0)
-    ).slice(0, neededPairs);
+    const cleaned = fileNames
+      .filter((f) => typeof f === "string" && f.trim().length > 0)
+      .map((f) => f.trim());
 
-    const base = chosenFiles.map((f) => `/memory/set${randomSet}/${f}`);
+    const chosenFiles = shuffle(cleaned).slice(0, neededPairs);
+    const fronts = chosenFiles.map((f) => `/memory/set${randomSet}/${f}`);
 
-    const doubled: Card[] = [...base, ...base].map((img, i) => ({
+    const doubled: Card[] = [...fronts, ...fronts].map((img, i) => ({
       id: `${i}-${Math.random().toString(16).slice(2)}`,
       img,
       flipped: false,
@@ -138,23 +152,33 @@ export default function Page() {
     setScores(new Array(players).fill(0));
   }
 
+  // ✅ super veilige flip
   function flip(id: string) {
-    if (locked) return;
-    if (openIds.length >= 2) return;
+    if (lockedRef.current) return;
 
-    setCards((prev) => {
-      const card = prev.find((c) => c.id === id);
-      if (!card || card.flipped || card.matched) return prev;
-      return prev.map((c) => (c.id === id ? { ...c, flipped: true } : c));
+    const nowOpen = openIdsRef.current;
+    if (nowOpen.length >= 2) return;
+    if (nowOpen.includes(id)) return;
+
+    const card = cardsRef.current.find((c) => c.id === id);
+    if (!card) return;
+    if (card.flipped) return;
+    if (card.matched) return;
+
+    setCards((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, flipped: true } : c))
+    );
+
+    setOpenIds((prev) => {
+      const next = [...prev, id];
+      if (next.length === 2) setLocked(true);
+      return next;
     });
-
-    setOpenIds((prev) => [...prev, id]);
   }
 
+  // ✅ match check + terugdraaien met extra tijd
   useEffect(() => {
     if (openIds.length !== 2) return;
-
-    setLocked(true);
 
     const [idA, idB] = openIds;
     const a = cardsRef.current.find((c) => c.id === idA);
@@ -162,11 +186,10 @@ export default function Page() {
 
     const isMatch = !!a && !!b && a.img === b.img;
 
-    const t = setTimeout(() => {
+    const t = window.setTimeout(() => {
       if (isMatch) {
         const p = currentPlayerRef.current;
 
-        // joker bonus
         const isJoker = (a?.img ?? "").toLowerCase().includes(JOKER_KEYWORD);
         const points = isJoker ? 3 : 1;
 
@@ -183,8 +206,7 @@ export default function Page() {
           next[p] = (next[p] ?? 0) + points;
           return next;
         });
-
-        // zelfde speler blijft aan zet bij match
+        // zelfde speler blijft aan zet
       } else {
         setCards((prev) =>
           prev.map((c) =>
@@ -192,22 +214,30 @@ export default function Page() {
           )
         );
 
-        // volgende speler
         setCurrentPlayer((prev) => (prev + 1) % numPlayersRef.current);
       }
 
       setOpenIds([]);
       setLocked(false);
-    }, 650);
+    }, isMatch ? 650 : TURN_BACK_DELAY_MS);
 
-    return () => clearTimeout(t);
+    return () => window.clearTimeout(t);
   }, [openIds]);
 
-  // einde spel
-  const allMatched = cards.length > 0 && cards.every((c) => c.matched);
+  // ✅ eindscherm vertragen
+  useEffect(() => {
+    if (!allMatched) return;
 
-  if (allMatched) {
-    const maxScore = Math.max(...scores);
+    const t = window.setTimeout(() => {
+      setGameFinished(true);
+    }, FINISH_SCREEN_DELAY_MS);
+
+    return () => window.clearTimeout(t);
+  }, [allMatched]);
+
+  // ✅ eindscherm
+  if (gameFinished) {
+    const maxScore = scores.length ? Math.max(...scores) : 0;
     const winners = scores
       .map((s, i) => ({ s: s ?? 0, i }))
       .filter((x) => x.s === maxScore)
@@ -219,42 +249,22 @@ export default function Page() {
         : `GELIJKSPEL: Speler ${winners.map((w) => w + 1).join(" & ")}`;
 
     return (
-      <div
-        style={{
-          minHeight: "100vh",
-          background: "#0b1020",
-          color: "white",
-          display: "grid",
-          placeItems: "center",
-          padding: 20,
-          fontFamily:
-            'system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial',
-        }}
-      >
+      <div style={styles.page}>
         <div style={{ width: "100%", maxWidth: 520, display: "grid", gap: 14 }}>
           <div style={{ fontSize: 28, fontWeight: 1000 }}>{winnaarTekst}</div>
 
-          <div
-            style={{
-              padding: 14,
-              borderRadius: 14,
-              background: "rgba(255,255,255,.06)",
-              border: "1px solid rgba(255,255,255,.12)",
-              display: "grid",
-              gap: 8,
-              fontWeight: 900,
-            }}
-          >
+          <div style={styles.panel}>
             {scores.map((s, i) => (
               <div
                 key={i}
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
-                  padding: "8px 10px",
+                  padding: "10px 12px",
                   borderRadius: 12,
                   border: `2px solid ${PLAYER_COLORS[i] ?? "white"}`,
                   background: "rgba(0,0,0,.15)",
+                  fontWeight: 900,
                 }}
               >
                 <span>Speler {i + 1}</span>
@@ -265,31 +275,12 @@ export default function Page() {
 
           <button
             onClick={() => newGame(numPlayers, board.cards)}
-            style={{
-              background: "#ffcc00",
-              color: "#111",
-              border: "none",
-              padding: "12px 14px",
-              borderRadius: 12,
-              fontWeight: 900,
-              cursor: "pointer",
-            }}
+            style={styles.primaryBtn}
           >
             Nog een potje (random set)
           </button>
 
-          <button
-            onClick={() => setStarted(false)}
-            style={{
-              background: "rgba(255,255,255,.08)",
-              color: "white",
-              border: "1px solid rgba(255,255,255,.18)",
-              padding: "12px 14px",
-              borderRadius: 12,
-              fontWeight: 900,
-              cursor: "pointer",
-            }}
-          >
+          <button onClick={() => setStarted(false)} style={styles.secondaryBtn}>
             Terug naar start
           </button>
         </div>
@@ -297,48 +288,26 @@ export default function Page() {
     );
   }
 
-  // STARTSCHERM
+  // ✅ startscherm
   if (!started) {
     return (
-      <div
-        style={{
-          minHeight: "100vh",
-          background: "#0b1020",
-          color: "white",
-          display: "grid",
-          placeItems: "center",
-          padding: 20,
-          fontFamily:
-            'system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial',
-        }}
-      >
-        <div style={{ width: "100%", maxWidth: 460, display: "grid", gap: 14 }}>
+      <div style={styles.page}>
+        <div style={{ width: "100%", maxWidth: 480, display: "grid", gap: 14 }}>
           <div style={{ fontSize: 22, fontWeight: 900 }}>🎾 Padel Memory</div>
 
-          <div style={{ opacity: 0.9, fontWeight: 800 }}>Aantal spelers</div>
+          <div style={{ opacity: 0.9, fontWeight: 900 }}>Aantal spelers</div>
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(4, 1fr)",
-              gap: 10,
-            }}
-          >
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
             {[1, 2, 3, 4].map((n) => (
               <button
                 key={n}
                 onClick={() => setNumPlayers(n)}
                 style={{
-                  border: "1px solid rgba(255,255,255,.18)",
+                  ...styles.choiceBtn,
                   background:
                     n === numPlayers
                       ? "rgba(255,204,0,.22)"
                       : "rgba(255,255,255,.06)",
-                  color: "white",
-                  padding: "12px 0",
-                  borderRadius: 12,
-                  fontWeight: 900,
-                  cursor: "pointer",
                 }}
               >
                 {n}
@@ -346,15 +315,9 @@ export default function Page() {
             ))}
           </div>
 
-          <div style={{ opacity: 0.9, fontWeight: 800 }}>Bord kiezen</div>
+          <div style={{ opacity: 0.9, fontWeight: 900 }}>Bord kiezen</div>
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(3, 1fr)",
-              gap: 10,
-            }}
-          >
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
             {BOARD_OPTIONS.map((opt) => {
               const active = opt.cards === board.cards;
               return (
@@ -362,15 +325,11 @@ export default function Page() {
                   key={opt.cards}
                   onClick={() => setBoard(opt)}
                   style={{
-                    border: "1px solid rgba(255,255,255,.18)",
+                    ...styles.choiceBtn,
+                    padding: "12px 10px",
                     background: active
                       ? "rgba(255,204,0,.22)"
                       : "rgba(255,255,255,.06)",
-                    color: "white",
-                    padding: "12px 10px",
-                    borderRadius: 12,
-                    fontWeight: 900,
-                    cursor: "pointer",
                   }}
                 >
                   {opt.label}
@@ -384,31 +343,24 @@ export default function Page() {
               newGame(numPlayers, board.cards);
               setStarted(true);
             }}
-            style={{
-              background: "#ffcc00",
-              color: "#111",
-              border: "none",
-              padding: "12px 14px",
-              borderRadius: 12,
-              fontWeight: 900,
-              cursor: "pointer",
-            }}
+            style={styles.primaryBtn}
           >
             Start (random set)
           </button>
 
           <div style={{ opacity: 0.7, fontSize: 12, lineHeight: 1.35 }}>
-            Achterkant: <code>/public/memory/back.png</code> <br />
-            Sets: <code>/public/memory/set1</code> t/m{" "}
-            <code>set{TOTAL_SETS}</code> <br />
-            Joker: bestandsnaam bevat “{JOKER_KEYWORD}” ⇒ 3 punten.
+            Achterkant: <code>/public/memory/back.png</code>
+            <br />
+            Sets: <code>/public/memory/set1</code> t/m <code>set{TOTAL_SETS}</code>
+            <br />
+            Joker: bestandsnaam bevat “{JOKER_KEYWORD}” ⇒ 3 punten
           </div>
         </div>
       </div>
     );
   }
 
-  // SPELSCHERM
+  // ✅ spel
   const activeColor = PLAYER_COLORS[currentPlayer] ?? "#ffcc00";
 
   return (
@@ -423,17 +375,8 @@ export default function Page() {
       }}
     >
       <div style={{ maxWidth: 980, margin: "0 auto", display: "grid", gap: 12 }}>
-        {/* header */}
-        <div
-          style={{
-            display: "flex",
-            gap: 12,
-            alignItems: "center",
-            justifyContent: "space-between",
-            flexWrap: "wrap",
-          }}
-        >
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+        <div style={styles.headerRow}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <div style={{ fontWeight: 900, fontSize: 18 }}>🎾 Padel Memory</div>
             <div style={{ opacity: 0.85, fontSize: 13 }}>
               PAREN: {pairsFound}/{totalPairs}
@@ -443,44 +386,20 @@ export default function Page() {
             </div>
             <div style={{ opacity: 0.85, fontSize: 13 }}>Set: {activeSet}</div>
             <div style={{ opacity: 0.85, fontSize: 13 }}>
-              Bord: {board.rows}×{board.cols}
+              Bord: {board.cols}×{board.rows}
             </div>
           </div>
 
           <div style={{ display: "flex", gap: 10 }}>
-            <button
-              onClick={() => newGame(numPlayers, board.cards)}
-              style={{
-                background: "#ffcc00",
-                color: "#111",
-                border: "none",
-                padding: "10px 12px",
-                borderRadius: 10,
-                fontWeight: 900,
-                cursor: "pointer",
-              }}
-            >
-              Reset (random set)
+            <button onClick={() => newGame(numPlayers, board.cards)} style={styles.primarySmallBtn}>
+              Reset
             </button>
-
-            <button
-              onClick={() => setStarted(false)}
-              style={{
-                background: "rgba(255,255,255,.08)",
-                color: "white",
-                border: "1px solid rgba(255,255,255,.18)",
-                padding: "10px 12px",
-                borderRadius: 10,
-                fontWeight: 900,
-                cursor: "pointer",
-              }}
-            >
+            <button onClick={() => setStarted(false)} style={styles.secondarySmallBtn}>
               Terug
             </button>
           </div>
         </div>
 
-        {/* scores */}
         <div
           style={{
             display: "grid",
@@ -498,9 +417,7 @@ export default function Page() {
                   padding: 12,
                   borderRadius: 12,
                   background: "rgba(255,255,255,.06)",
-                  border: active
-                    ? `2px solid ${c}`
-                    : "1px solid rgba(255,255,255,.12)",
+                  border: active ? `2px solid ${c}` : "1px solid rgba(255,255,255,.12)",
                   fontWeight: 900,
                   display: "flex",
                   justifyContent: "space-between",
@@ -513,7 +430,6 @@ export default function Page() {
           })}
         </div>
 
-        {/* grid ✅ nu gebaseerd op gekozen bord */}
         <div
           style={{
             display: "grid",
@@ -528,12 +444,7 @@ export default function Page() {
               <button
                 key={c.id}
                 onClick={() => flip(c.id)}
-                style={{
-                  border: "none",
-                  background: "transparent",
-                  padding: 0,
-                  cursor: "pointer",
-                }}
+                style={{ border: "none", background: "transparent", padding: 0, cursor: "pointer" }}
                 aria-label="memory card"
               >
                 <div
@@ -543,7 +454,6 @@ export default function Page() {
                     borderRadius: 12,
                     overflow: "hidden",
                     background: "#111827",
-                    position: "relative",
                     boxShadow: "0 6px 16px rgba(0,0,0,.25)",
                     outline: ownerColor ? `3px solid ${ownerColor}` : "none",
                     outlineOffset: ownerColor ? -3 : 0,
@@ -554,12 +464,14 @@ export default function Page() {
                       src="/memory/back.png"
                       alt="back"
                       style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                      draggable={false}
                     />
                   ) : (
                     <img
                       src={c.img}
                       alt="front"
                       style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                      draggable={false}
                     />
                   )}
                 </div>
@@ -571,3 +483,75 @@ export default function Page() {
     </div>
   );
 }
+
+const styles: Record<string, React.CSSProperties> = {
+  page: {
+    minHeight: "100vh",
+    background: "#0b1020",
+    color: "white",
+    display: "grid",
+    placeItems: "center",
+    padding: 20,
+    fontFamily:
+      'system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial',
+  },
+  panel: {
+    padding: 14,
+    borderRadius: 14,
+    background: "rgba(255,255,255,.06)",
+    border: "1px solid rgba(255,255,255,.12)",
+    display: "grid",
+    gap: 8,
+  },
+  headerRow: {
+    display: "flex",
+    gap: 12,
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+  },
+  choiceBtn: {
+    border: "1px solid rgba(255,255,255,.18)",
+    color: "white",
+    padding: "12px 0",
+    borderRadius: 12,
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  primaryBtn: {
+    background: "#ffcc00",
+    color: "#111",
+    border: "none",
+    padding: "12px 14px",
+    borderRadius: 12,
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  secondaryBtn: {
+    background: "rgba(255,255,255,.08)",
+    color: "white",
+    border: "1px solid rgba(255,255,255,.18)",
+    padding: "12px 14px",
+    borderRadius: 12,
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  primarySmallBtn: {
+    background: "#ffcc00",
+    color: "#111",
+    border: "none",
+    padding: "10px 12px",
+    borderRadius: 10,
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  secondarySmallBtn: {
+    background: "rgba(255,255,255,.08)",
+    color: "white",
+    border: "1px solid rgba(255,255,255,.18)",
+    padding: "10px 12px",
+    borderRadius: 10,
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+};
